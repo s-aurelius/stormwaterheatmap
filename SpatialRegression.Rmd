@@ -1,0 +1,21 @@
+---
+title: "Spatial Regression of Stormwater Pollutants"
+author: "Christian Nilsen"
+output:
+  html_document:
+    df_print: paged
+---
+This notebook demonstrates spatial regression of stormwater pollutant data for Puget Sound. It combines stormwater outfall monitoring data with spatial regression to predict pollutant concentrations across Puget Sound. 
+
+The stormwater outfall data is available from the Department of Ecology at
+https://data.wa.gov/Natural-Resources-Environment/Municipal-Stormwater-Permit-Outfall-Data/d958-q2ci
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
