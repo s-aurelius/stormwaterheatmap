@@ -13,6 +13,9 @@ It uses the Socrata REST api in the form of
 
 https://data.wa.gov/resource/d958-q2ci.json?parameter=Copper%20-%20Water%20-%20Total
 
+
+
+
 ```{r echo=FALSE}
 library(RSocrata)
 if (!require('dplyr')) install.packages('dplyr')
@@ -28,6 +31,7 @@ library(RSocrata)
 library(dplyr)
 library(Hmisc)
 library(formattable)
+library(survminer)
 
 
 url <- ("https://data.wa.gov/resource/rc6b-fvgb.json")
@@ -65,38 +69,41 @@ s8data$Year <- with(s8data, format(as.Date(field_collection_start_date),"%Y"))
 #Trim location names so that Port of Seattle outfall locations are the same (all same study)
 s8data$Location <- substr(s8data$Location, 1, 12)
 #Plot data to view
+plot.title <- paste0(s8data$parameter, ' (',s8data$new_result_units,')')
 plot <- ggplot(data = s8data) + 
   geom_point(mapping = aes(x = 1, y = new_result_value, color = study_name), position = 'jitter')  
-plot+ggtitle(paste0(s8data$parameter, ' (',s8data$new_result_units,')'))
+plot+ggtitle(plot.title)
 ```
 Looks good 
 
 ```{r}
 s8data$Loc.Year <- paste0(s8data$Location, '-', s8data$Year)
 # Box plot with dot plot
-plot <- ggplot(data = s8data) + 
-  geom_boxplot(mapping = aes(x = Year, y = new_result_value, color = study_name))
-plot + facet_grid(vars(study_name))
-
+plot <- ggplot(s8data, aes(Year, new_result_value, fill = Loc.Year)) + 
+  geom_boxplot()+theme(legend.position = "none")+scale_y_log10()+ggtitle(plot.title)
+ 
+   
+plot
 ```
 
 
 Since the data set has mixed detection limits, we will use the kaplan-meier estimator to evaluate median values
-```{r}
+```{r echo=FALSE}
 #first determine which are censored and which are not 
 obs      <- as.numeric(s8data$new_result_value)
 censored <-as.logical(s8data$nondetect_flag)
-a <-tibble(numOfSamples = length(obs), PercentCensored = pctCen(obs, censored ))
 
-formattable(a)
 groups = as.factor(s8data$Location)
 
+KM
 KM = cenfit(obs, censored, groups)
-formattable(summary(KM.medians))
+
+#a <-(tibble(site = groups, numOfSamples = KM@survfit$n, PercentCensored = KM@survfit$n.censor))
+
+#formattable(KM@survfit)
+ggsurvplot(KM@survfit, data = obs)
+
 ##plot(KM)
 #plot with ggfortify
 
-
-
 ```
-
