@@ -5,6 +5,11 @@ output:
   html_document:
     s8data_print: paged
 ---
+#To do: 
+*add bibilography
+*select a mixed effects model
+
+#Introduction
 This notebook demonstrates spatial regression of stormwater pollutant data for Puget Sound. It combines stormwater outfall monitoring data with spatial regression to predict pollutant concentrations across Puget Sound. 
 
 The stormwater outfall data is available from the Department of Ecology at
@@ -22,18 +27,25 @@ if (!require('dplyr')) install.packages('dplyr')
 if (!require('NADA')) install.packages('NADA')
 if (!require('RSocrata')) install.packages('RSocrata')
 if (!require('Hmisc')) install.packages('Hmisc')
+if (!require('tidyverse')) install.packages('tidyverse')
+if (!require('formattable')) install.packages('formattable')
+if (!require('kableExtra')) install.packages('kableExtra')
+if (!require('survival')) install.packages('survival')
 
-install.packages('tidyverse')
-install.packages('formattable')
-
+if (!require('PerformanceAnalytics')) install.packages("PerformanceAnalytics")
 library(NADA)
 library(RSocrata)
 library(dplyr)
 library(Hmisc)
 library(formattable)
 library(survminer)
-
-
+library(tidyverse)
+library(kableExtra)
+library(survival)
+library(PerformanceAnalytics)
+```
+Get data
+```{r}
 url <- ("https://data.wa.gov/resource/rc6b-fvgb.json")
 parameter <- 'Copper - Water - Total'
 #construct the SQL call 
@@ -74,7 +86,9 @@ plot <- ggplot(data = s8data) +
   geom_point(mapping = aes(x = 1, y = new_result_value, color = study_name), position = 'jitter')  
 plot+ggtitle(plot.title)
 ```
-Looks good 
+Looks good. Lets look at how concentration are correleated with landuse. 
+
+
 
 ```{r}
 s8data$Loc.Year <- paste0(s8data$Location, '-', s8data$Year)
@@ -85,25 +99,92 @@ plot <- ggplot(s8data, aes(Year, new_result_value, fill = Loc.Year)) +
    
 plot
 ```
-
-
 Since the data set has mixed detection limits, we will use the kaplan-meier estimator to evaluate median values
 ```{r echo=FALSE}
 #first determine which are censored and which are not 
 obs      <- as.numeric(s8data$new_result_value)
 censored <-as.logical(s8data$nondetect_flag)
-
 groups = as.factor(s8data$Location)
-
-KM
 KM = cenfit(obs, censored, groups)
+b <- as.data.frame(median(KM))
+KM.medians <- tibble(site = row.names(b), median = (b$`median(KM)`))
+kable(KM.medians)
 
-#a <-(tibble(site = groups, numOfSamples = KM@survfit$n, PercentCensored = KM@survfit$n.censor))
+```
 
-#formattable(KM@survfit)
-ggsurvplot(KM@survfit, data = obs)
 
-##plot(KM)
-#plot with ggfortify
+Look at landuses 
+```{r echo=TRUE}
+cor.data <- (cbind(s8data$new_result_value, s8data[, 17:21])) #land uses
+chart.Correlation(cor.data, histogram=FALSE, method = 'pearson')
+cor.matrix <- rcorr(as.matrix(cor.data),s8data$nondetect_flag)
+r<- (cor.matrix$r)[,1]
+P<- (cor.matrix$P)[,1]
+table <- (cbind(r,P))
+kable(table)
+
+```
+Look at other indices 
+```{r}
+cor.data <- cbind(s8data$new_result_value, s8data[, 10:16], s8data$age, s8data$elev) #indicies from earth engine
+chart.Correlation(cor.data, histogram=FALSE, method = 'pearson')
+cor.matrix <- rcorr(as.matrix(cor.data),s8data$nondetect_flag)
+```
+
+Imperviousness is the highest correleated, followed by elevation, then age and ndvi mean. 
+
+Let's choose 0.25 as the cutoff for correlation. This gives the following as variables to use: 
+*Landuse 
+  *Percent COM
+  *Percent SFR
+*Indicies
+  *imperviousness
+  *ndbi
+  *roads
+```{r}
+r<- (cor.matrix$r)[,1]
+P<- (cor.matrix$P)[,1]
+table <- (cbind(r,p))
+kable(table)
+```
+
+Begin linear model  (ignore non-detects for now)
+```{r}
+library(nlme)
+fit1 <- gls(new_result_value ~ COM + SFR + Impee + ndbi +roads, data=s8data,method="ML")
+summary(fit1)
+
+
+```
+Begin mixed effect model
+```{r}
+#try loc and year as grouping factors
+fit2 <- lme(new_result_value ~ COM + SFR + Impee + ndbi +roads, data=s8data, random = ~1|Loc.Year,method="ML")  
+summary(fit2)
+```
+Display ANOVA table
+```{r}
+fit3 <- lme(new_result_value ~ Impee  +roads, data=s8data, random = ~1|Loc.Year,method="ML") 
+summary(fit3)
+anova(fit1,fit2)
+```
+
+Fit2 has a slightly lower AIC Begin forward selection 
+
+```{r}
+library(leaps)
+library(AICcmodavg)
+
+Cand.models<-list()
+Cand.models[[1]] <- fit2
+Cand.models[[2]] <- fit3
+
+
+#create a vector of names to trace back models in set
+Modnames<-paste("mod", 1:length(Cand.models), sep="")
+
+#generate AICc table
+bictab(cand.set = Cand.models, modnames = Modnames, sort=TRUE)
+plot(fit1)
 
 ```
