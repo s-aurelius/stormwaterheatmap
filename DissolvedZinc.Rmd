@@ -1,0 +1,282 @@
+
+
+---
+title: "Spatial Regression of Stormwater Pollutants"
+author: "Christian Nilsen"
+output:
+  html_document:
+    s8data_print: paged
+---
+#To do: 
+*add in rainfall 
+*clean up eeIncidies
+*add more exploratory section
+*follow Tufts example
+*add bibilography
+*select a mixed effects model
+
+#Introduction
+This notebook demonstrates spatial regression of stormwater pollutant data for Puget Sound. It combines stormwater outfall monitoring data with spatial regression to predict pollutant concentrations across Puget Sound. 
+
+The stormwater outfall data is available from the Department of Ecology at
+https://data.wa.gov/Natural-Resources-Environment/Municipal-Stormwater-Permit-Outfall-Data/d958-q2ci
+It uses the Socrata REST api in the form of 
+
+https://data.wa.gov/resource/d958-q2ci.json?parameter=Copper%20-%20Water%20-%20Total
+
+
+
+
+```{r include=FALSE}
+library(RSocrata)
+
+if (!require('NADA')) install.packages('NADA')
+if (!require('RSocrata')) install.packages('RSocrata')
+if (!require('Hmisc')) install.packages('Hmisc')
+if (!require('tidyverse')) install.packages('tidyverse')
+if (!require('formattable')) install.packages('formattable')
+if (!require('kableExtra')) install.packages('kableExtra')
+if (!require('survival')) install.packages('survival')
+
+if (!require('PerformanceAnalytics')) install.packages("PerformanceAnalytics")
+library(NADA)
+library(RSocrata)
+library(dplyr)
+library(Hmisc)
+library(formattable)
+library(survminer)
+library(tidyverse)
+library(kableExtra)
+library(survival)
+library(PerformanceAnalytics)
+```
+# Get data and plot it
+```{r}
+url <- ("https://data.wa.gov/resource/rc6b-fvgb.json")
+parameter <- 'Zinc - Water - Dissolved'
+#construct the SQL call 
+#apiCall <- paste0(url,"?$where=Result_Data_Qualifier<>'REJ' AND parameter= ","'",parameter,"'")
+apiCall <- paste0(url,"?$where=parameter= ","'",parameter,"'")
+data <-as_tibble(read.socrata(apiCall))
+data <- (filter(data,!result_data_qualifier %in% 'REJ'))
+data <- type.convert(data)
+
+```
+Looks OK
+
+```{r echo=TRUE}
+#read in spatial data and join
+
+
+s8data <- data %>% 
+   dplyr::select(location_id,study_id, parameter,season,new_result_value,nondetect_flag, new_result_units,field_collection_start_date,type) #sampling data
+
+
+luLookup <-
+ (read.csv("Data/luLookup.csv",  na = "NA")) #land use data
+eeIndicies <-
+  read.csv("Data/eeIndiciesNorm.csv") #spatial parameters
+s8xy <-
+  read.csv("Data/s8xy.csv") #xy coordinates of sampling locations
+
+
+colnames(s8data)[colnames(s8data)=="location_id"] <- "Location"
+```
+
+
+```{r echo=TRUE}
+s8data <- s8data %>%
+    merge(eeIndicies, by = "Location") %>%
+    merge(luLookup, by = "Location") %>%
+    merge(s8xy, by = "Location") 
+#s8data <- as_tibble(s8data)
+s8data$Year <- with(s8data, format(as.Date(field_collection_start_date),"%Y"))
+
+#Trim location names so that Port of Seattle outfall locations are the same (all same study)
+s8data$Location <- substr(s8data$Location, 1, 12)
+#Plot data to view
+
+# Plot by study 
+plot.title <- paste0(s8data$parameter, ' (',s8data$new_result_units,')')
+
+plot <- ggplot(s8data, aes(study_id,new_result_value, fill = study_id)) + 
+  geom_boxplot()+theme(legend.position = "none")+scale_y_log10()+ggtitle(plot.title)
+ 
+   
+plot
+```
+#Explore the data more 
+```{r}
+
+# Plot by type 
+plot <- ggplot(s8data, aes(type,new_result_value, fill = study_id)) + 
+  geom_boxplot()+theme(legend.position = "none")+scale_y_log10()+ggtitle(plot.title)
+ 
+   
+plot
+```
+#Explore Correleation
+Look at landuses 
+```{r echo=TRUE}
+cor.data <- (cbind(s8data$new_result_value, s8data[, 18:22])) #land uses
+chart.Correlation(cor.data, histogram=FALSE, method = 'pearson')
+cor.matrix <- rcorr(as.matrix(cor.data),s8data$nondetect_flag)
+r<- (cor.matrix$r)[,1]
+P<- (cor.matrix$P)[,1]
+table <- (cbind(r,P))
+kable(table)
+
+```
+Look at other indices 
+```{r}
+cor.data <- cbind(s8data$new_result_value, s8data[, 10:17], s8data$age, s8data$elev) #indicies from earth engine
+chart.Correlation(cor.data, histogram=FALSE, method = 'pearson')
+cor.matrix <- rcorr(as.matrix(cor.data),s8data$nondetect_flag)
+```
+
+It looks like outliers are messing things up. 
+
+```{r}
+#plot everything as one boxplot to view outliers 
+
+boxplot(s8data$new_result_value)$out
+
+
+```
+
+```{r}
+#normally it is a good idea to keep outliers, but that one is so much larger, this is probably skewing things. 
+
+#s8data <-
+  #s8data [order(-s8data$new_result_value),] 
+#s8data <-  s8data[-1,]
+
+
+#replot 
+#boxplot(s8data$new_result_value)$out
+
+
+```
+
+
+Better! Try correlation again 
+This time log transform the data 
+
+```{r echo=TRUE}
+cor.data <- (cbind(log(s8data$new_result_value), s8data[, 18:22])) #land uses
+chart.Correlation(cor.data, histogram=FALSE, method = 'pearson')
+cor.matrix <- rcorr(as.matrix(cor.data),s8data$nondetect_flag)
+r<- (cor.matrix$r)[,1]
+P<- (cor.matrix$P)[,1]
+table <- (cbind(r,P))
+kable(table)
+```
+
+```{r}
+
+cor.data <- cbind(log(s8data$new_result_value), s8data[, 10:17], s8data$age, s8data$elev) #indicies from earth engine
+chart.Correlation(cor.data, histogram=FALSE, method = 'pearson')
+cor.matrix <- rcorr(as.matrix(cor.data),s8data$nondetect_flag)
+
+
+```
+
+
+```{r}
+r<- (cor.matrix$r)[,1]
+P<- (cor.matrix$P)[,1]
+table <- (cbind(r,P))
+(table)
+```
+```{r}
+
+
+# All Subsets Regression
+library(leaps)
+
+
+leaps<-regsubsets(new_result_value ~ 
+                    MFR + IND + ghm + pm25 + ndbi +Impee + elev + roofs + elev, data=s8data,method = "forward")
+# view results 
+
+# plot a table of models showing variables in each model.
+# models are ordered by the selection statistic.
+#layout(matrix(c(1, 2), 2, 1)) # optional 2 graphs/page
+plot(leaps,scale="adjr2")
+plot(leaps,scale="bic")
+```
+We will pass MFR, IND, Impee, roofs,  to our mixed model
+
+#Let's see if there is a distribution we can use
+
+```{r}
+library(MASS)
+library(qualityTools)
+#normal distribution
+x <- s8data$new_result_value
+qqPlot(x, "log-normal")
+qqPlot(x, "weibull")
+#qqPlot(x, "gamma")
+qqPlot(x, "normal")
+qqPlot(x, 'exponential')
+qqPlot(log(x+1), "weibull")#this is the Gumbell distribution
+
+
+```
+Data are not normally distributed, mixed effects modeling cannot have normal distribution assumptions for random effects. 
+
+assume a weibell or gamma distribution for mixed effects. These are both forms of the exponetional function
+
+#Generalized Mixed Model 
+PQL <- glmmPQL(Aggression.t ~ Relation + Season, ~1 | Observer/Test.ID, family = gaussian(link = "log"),
+    data = recog, verbose = FALSE)
+    
+```{r}
+PQL <- glmmPQL(new_result_value ~ MFR+IND+elev+roofs, data=s8data, random = ~1|Location,family = gaussian(link= 'log'))
+
+
+
+summary(PQL)
+```
+
+```{r}
+PQL <- glmmPQL(new_result_value ~ MFR, data=s8data, random = ~1|Location,family = gaussian(link= 'log'))
+
+
+
+summary(PQL)
+```
+
+
+```{r}
+
+#don't need to remove anything. All three are significant. 
+
+lm.compare <- lm(log(new_result_value) ~ MFR, data = s8data)
+
+summary(lm.compare)
+#plot(PQL2, log(new_result_value) ~ fitted(.), abline = c(0,1))
+#anova(lm.compare)
+```
+
+
+
+```{r}
+#compare with a linear regression model 
+glme.equation <- tibble(x = s8data$MFR,y = exp(3.402511 + 2.075818*s8data$MFR))
+lm.equation <- tibble(x = s8data$MFR,y = exp(2.93201 + 2.06656*s8data$MFR))
+
+p = ggplot() + 
+  geom_line(data = glme.equation, aes(x = x, y = y, color = "glme") ) +
+  geom_line(data = lm.equation, aes(x = x, y = y, color = "lm") ) +
+  geom_point(data = s8data, aes (x = s8data$IND, y = s8data$new_result_value))
+  
+p+scale_y_log10()+ggtitle(plot.title)
+
+```
+
+
+
+    
+#Dealing with Censored Data
+Since the data set has mixed detection limits, we will use the kaplan-meier estimator to evaluate median values
