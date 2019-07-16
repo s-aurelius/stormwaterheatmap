@@ -96,17 +96,19 @@ s8data$Location <- substr(s8data$Location, 1, 12)
 
 # Plot by study 
 plot <- ggplot(s8data, aes(study_id,new_result_value, fill = study_id)) + 
-  geom_boxplot()+theme(legend.position = "none")+scale_y_log10()+ggtitle(plot.title)
+  geom_boxplot()+theme(legend.position = "none")+scale_y_log10()+ggtitle(parameter)
  
    
 plot
 ```
 #Explore the data more 
+
+
 ```{r}
 
 # Plot by type 
 plot <- ggplot(s8data, aes(type,new_result_value, fill = study_id)) + 
-  geom_boxplot()+theme(legend.position = "none")+scale_y_log10()+ggtitle(plot.title)
+  geom_boxplot()+theme(legend.position = "none")+scale_y_log10()+ggtitle(parameter)
  
    
 plot
@@ -193,11 +195,18 @@ Data are not normally distributed, mixed effects modeling cannot have normal dis
 assume a weibell or gamma distribution for mixed effects. These are both forms of the exponetional function
 
 #Generalized Mixed Model 
-PQL <- glmmPQL(Aggression.t ~ Relation + Season, ~1 | Observer/Test.ID, family = gaussian(link = "log"),
+PQL <- glmmPQL(Aggression.t ~ Relation + Season, ~1 | Observer/Test.ID, family = gaussian,
     data = recog, verbose = FALSE)
     
 ```{r}
-PQL <- glmmPQL(new_result_value ~ pm25  + Impee + elev, data=s8data, random = ~1|Location,family = gaussian(link = 'log'))
+PQL <- glmmPQL(new_result_value ~ Impee + elev + pm25 + roads , data=s8data, random = ~1|Location,family = gaussian(link = 'log'))
+
+
+
+summary(PQL)
+```
+```{r}
+PQL <- glmmPQL(new_result_value ~ Impee + elev + roads , data=s8data, random = ~1|Location,family = gaussian(link = 'log'))
 
 
 
@@ -206,11 +215,11 @@ summary(PQL)
 
 
 ```{r}
-PQL2 <- glmmPQL(new_result_value ~  Impee, data = s8data, random = ~1|Location,family = gaussian(link = 'log'))
-lm.compare <- lm(log(new_result_value) ~ Impee, data = s8data)
-summary(PQL2)
+
+lm.compare <- lm(log(new_result_value) ~ Impee+roads+elev, data = s8data)
+
 summary(lm.compare)
-#plot(PQL2, log(new_result_value) ~ fitted(.), abline = c(0,1))
+#plot(PQL2, (new_result_value) ~ fitted(.), abline = c(0,1))
 #anova(lm.compare)
 ```
 
@@ -218,17 +227,21 @@ summary(lm.compare)
 
 ```{r}
 #compare with a linear regression model 
-glme.equation <- tibble(x = s8data$Impee,y = exp(1.084614+2.618041*s8data$Impee))
-lm.equation <- tibble(x = s8data$Impee,y = exp(0.5154     +3.1005     *s8data$Impee))
+glme.equation <- tibble(x = s8data$Impee,y = exp(1.211128+5.744967 *s8data$Impee -1.753064 *s8data$elev -3.758569 *s8data$roads))
+lm.equation <- tibble(x = s8data$Impee,y = exp(0.5646     +7.3835     *s8data$Impee -2.0614 
+                                               *s8data$elev -4.9968 *s8data$roads))
 
 p = ggplot() + 
   geom_line(data = glme.equation, aes(x = x, y = y, color = "glme") ) +
   geom_line(data = lm.equation, aes(x = x, y = y, color = "lm") ) +
   geom_point(data = s8data, aes (x = s8data$Impee, y = s8data$new_result_value))
   
-p+scale_y_log10()+ggtitle(plot.title)
+p+scale_y_log10()+ggtitle(parameter)
 
 ```
+
+
+
 
     
 #Dealing with Censored Data
